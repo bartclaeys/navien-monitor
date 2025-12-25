@@ -8,7 +8,7 @@ substitutions:
 esphome:
   name: "navien-monitor"
   friendly_name: "Navien Water Heater"
-  comment: "M5Stack Monitor for Navien Boiler (Power & Alert System)"
+  comment: "M5Stack Monitor for Navien Boiler (via Smart Plug Power Monitoring)"
   project:
     name: "bartclaeys.navien-monitor"
     version: "1.0.0"

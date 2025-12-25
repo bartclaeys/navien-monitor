@@ -1,7 +1,10 @@
 # Navien Monitor Walkthrough
 
 ## Overview
-A custom ESPHome firmware for M5Stack Basic (Core) to monitor a Navien Water Heater via Home Assistant sensors.
+A custom ESPHome firmware for M5Stack Basic (Core) to monitor and control a Navien Water Heater.
+**Critical Mechanism**: The M5Stack interacts with the boiler **indirectly via a Home Assistant-controlled Smart Plug**.
+- **Monitoring**: Reads power usage (Watts) from the Smart Plug to detect boiler activity.
+- **Control**: "Reboot" function toggles the Smart Plug off/on to reset the boiler.
 
 **Repository**: [github.com/bartclaeys/navien-monitor](https://github.com/bartclaeys/navien-monitor)
 
@@ -11,7 +14,7 @@ A custom ESPHome firmware for M5Stack Basic (Core) to monitor a Navien Water Hea
 - **Layout**: High-contrast, large text (**Roboto 32px**) for readability.
 - **Theme**: 
     - **Normal**: Black Background / White Text.
-    - **Alert**: **RED Background** / White Text (Triggered when Boiler Power < 5.0W).
+    - **Alert**: **RED Background** / White Text (Triggered when Smart Plug Power < 5.0W).
 - **Colors**:
     - **Main Data**: Grey (96, 96, 96).
     - **Meta Info**: **Dim Grey** (60, 60, 60) for Clock, Footer, and Labels.
@@ -26,15 +29,15 @@ A custom ESPHome firmware for M5Stack Basic (Core) to monitor a Navien Water Hea
 | :--- | :--- | :--- | :--- |
 | **A (Left)** | **BRIGHTNESS** | Cycles Backlight (100% -> 30% -> Off) | Soft Beep (1.25%) |
 | **B (Mid)** | **ALERT** | **Simulates Alert** (Chirp + Red Flash) | **Quiet Chirp (5%)** |
-| **C (Right)** | **REBOOT NAVIEN** | Cycles Plug Power (Off -> 5s -> On) | Soft Beep |
+| **C (Right)** | **REBOOT NAVIEN** | **Toggles Smart Plug** (Off -> 5s -> On) | Soft Beep |
 
 ### 3. Logic
 - **Active Alert System**:
-    - **Trigger**: Boiler Power < 5.0W.
+    - **Trigger**: Smart Plug Power < 5.0W (Boiler inactive/fault).
     - **Action**: Plays **Quiet Chirp** automatically + Displays Red Background.
 - **Manual Test**: Pressing Center Button ("ALERT") triggers the same effect.
     - **Flash Logic**: Forces screen update (Red) -> Holds 500ms -> Forces update (Black).
-- **Reboot Logic**: Button C triggers `script.reboot_navien`.
+- **Reboot Logic**: Button C triggers `script.reboot_navien`, which calls the switch entity for the Smart Plug.
 
 ## Optimizations (Technical)
 - **Centralized Config**: All thresholds and levels defined in `substitutions`.
