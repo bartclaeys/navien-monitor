@@ -8,6 +8,8 @@ A custom ESPHome firmware for M5Stack Basic (Core) to monitor and control a Navi
 
 **Repository**: [github.com/bartclaeys/navien-monitor](https://github.com/bartclaeys/navien-monitor)
 
+![Navien Monitor Device](navien_monitor_device.jpg)
+
 ## Key Features
 
 ### 1. Visual Interface
