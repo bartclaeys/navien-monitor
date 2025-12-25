@@ -1,0 +1,284 @@
+substitutions:
+  # --- Configuration ---
+  boiler_power_threshold: "5.0" # Watts
+  vol_beep: "0.0125"            # 1.25% Duty Cycle
+  vol_chirp: "0.05"             # 5% Duty Cycle
+  backlight_dim: "0.3"          # 30% Brightness
+
+esphome:
+  name: "navien-monitor"
+  friendly_name: "Navien Water Heater"
+
+esp32:
+  board: m5stack-core-esp32
+  framework:
+    type: arduino
+
+logger:
+  level: DEBUG
+  baud_rate: 115200 
+
+api:
+  id: api_server
+
+ota:
+  - platform: esphome
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: "Navien-Fallback"
+
+time:
+  - platform: sntp
+    id: sntp_time
+    timezone: "America/Los_Angeles"
+
+i2c:
+  sda: 21
+  scl: 22
+  scan: true
+  id: bus_a
+
+switch:
+  - platform: restart
+    name: "Restart Monitor"
+
+  - platform: homeassistant
+    id: navien_plug
+    entity_id: switch.boiler_room_plug
+    internal: true
+
+sensor:
+  - platform: homeassistant
+    id: boiler_power
+    entity_id: sensor.boiler_room_power_plug
+    internal: true
+
+  - platform: homeassistant
+    id: living_room_temp
+    entity_id: sensor.living_room_thermometer_temperature
+    internal: true
+
+text_sensor:
+  - platform: homeassistant
+    id: thermostat_action
+    entity_id: sensor.living_room_thermostat_action
+    internal: true
+
+spi:
+  clk_pin: 18
+  mosi_pin: 23
+  miso_pin: 19
+
+font:
+  - file: "gfonts://Roboto"
+    id: font_md
+    size: 32 
+    glyphs: '0123456789. %:-abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ' # Removed duplicates C,W,F
+  - file: "gfonts://Roboto"
+    id: font_sm
+    size: 20 
+    glyphs: '0123456789.: abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'
+  - file: "gfonts://Roboto"
+    id: font_xs
+    size: 16
+    glyphs: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ ' # Uppercase Only + Space
+
+light:
+  - platform: monochromatic
+    name: "Display Backlight"
+    output: backlight_pwm
+    id: disp_bl
+    restore_mode: ALWAYS_ON
+
+output:
+  - platform: ledc
+    pin: 32
+    id: backlight_pwm
+  
+  - platform: ledc
+    pin: 25
+    id: buzzer_pwm
+    frequency: 2000Hz
+
+rtttl:
+  output: buzzer_pwm
+  id: buzzer
+
+globals:
+  - id: visual_feedback
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+script:
+  - id: beep
+    mode: restart
+    then:
+      - output.set_level:
+          id: buzzer_pwm
+          level: ${vol_beep}
+      - delay: 50ms
+      - output.turn_off: buzzer_pwm
+
+  - id: quiet_chirp
+    mode: restart
+    then:
+      - globals.set:
+          id: visual_feedback
+          value: 'true'
+      - component.update: main_display # Force Redraw (RED)
+      - output.set_level:
+          id: buzzer_pwm
+          level: ${vol_chirp}
+      - delay: 50ms
+      - output.turn_off: buzzer_pwm
+      - delay: 50ms
+      - output.set_level:
+          id: buzzer_pwm
+          level: ${vol_chirp}
+      - delay: 50ms
+      - output.turn_off: buzzer_pwm
+      - delay: 500ms # Hold Red for visibility
+      - globals.set:
+          id: visual_feedback
+          value: 'false'
+      - component.update: main_display # Force Redraw (Back to Normal)
+
+  - id: reboot_navien
+    mode: single
+    then:
+      - logger.log: "Rebooting Navien (Cycling Plug)..."
+      - script.execute: beep
+      - switch.turn_off: navien_plug
+      - delay: 5s
+      - switch.turn_on: navien_plug
+      - script.execute: beep
+      - logger.log: "Navien Reboot Complete"
+
+display:
+  - platform: ili9xxx
+    id: main_display
+    model: M5Stack
+    cs_pin: 14
+    dc_pin: 27
+    reset_pin: 33
+    rotation: 0
+    invert_colors: true
+    color_palette: 8BIT
+    lambda: |-
+      // --- DEFINING COLORS ---
+      Color C_WHITE      = Color(255, 255, 255);
+      Color C_BLACK      = Color(0, 0, 0);
+      Color C_RED        = Color(255, 0, 0);
+      Color C_GREY       = Color(96, 96, 96);
+      Color C_DIM_GREY   = Color(60, 60, 60); 
+      Color C_DARK_GREY  = Color(24, 24, 24); 
+
+      // --- THEME LOGIC ---
+      bool is_alert = id(boiler_alert).state || id(visual_feedback);
+
+      Color BG_COLOR   = is_alert ? C_RED : C_BLACK;       
+      Color MAIN_TEXT  = C_WHITE;                          
+      Color META_TEXT  = is_alert ? C_WHITE : C_GREY;      
+      Color DIM_TEXT   = is_alert ? C_WHITE : C_DIM_GREY;  
+      Color LINE_COLOR = is_alert ? C_WHITE : C_DARK_GREY; 
+
+      // --- DRAW BACKGROUND ---
+      it.fill(BG_COLOR);
+
+      // --- HEADER ---
+      bool tick = id(sntp_time).now().second % 2 == 0;
+      it.strftime(310, 2, id(font_sm), DIM_TEXT, TextAlign::TOP_RIGHT, tick ? "%H:%M" : "%H %M", id(sntp_time).now());
+
+      // --- DATA DISPLAY ---
+      
+      // 1. Boiler Plug
+      it.print(20, 15, id(font_sm), META_TEXT, "Boiler Power Usage");
+      if (id(boiler_power).has_state()) {
+        it.printf(20, 35, id(font_md), MAIN_TEXT, "%.1f W", id(boiler_power).state);
+      } else {
+        it.print(20, 35, id(font_md), META_TEXT, "-- W");
+      }
+
+      // 2. Thermometer (Living Room)
+      it.print(20, 75, id(font_sm), META_TEXT, "Living Room Temp");
+      if (id(living_room_temp).has_state()) {
+        it.printf(20, 95, id(font_md), MAIN_TEXT, "%.1f F", id(living_room_temp).state);
+      } else {
+        it.print(20, 95, id(font_md), META_TEXT, "--.- F");
+      }
+
+      // 3. Thermostat Action
+      it.print(20, 135, id(font_sm), META_TEXT, "Ecobee Action");
+      if (id(thermostat_action).has_state()) {
+        it.printf(20, 155, id(font_md), MAIN_TEXT, "%s", id(thermostat_action).state.c_str());
+      } else {
+        it.print(20, 155, id(font_md), META_TEXT, "Unknown");
+      }
+
+      // --- FOOTER ---
+      // Shifted Up by 10px (215->205)
+      it.line(0, 205, 320, 205, LINE_COLOR);
+      it.print(5, 209, id(font_xs), DIM_TEXT, "BRIGHTNESS");
+      it.print(145, 209, id(font_xs), DIM_TEXT, TextAlign::TOP_CENTER, "ALERT"); 
+      it.print(315, 209, id(font_xs), DIM_TEXT, TextAlign::TOP_RIGHT, "REBOOT NAVIEN");
+
+binary_sensor:
+  - platform: template
+    name: "Boiler Alert"
+    id: boiler_alert
+    lambda: |-
+      if (id(boiler_power).has_state()) {
+        if (id(boiler_power).state < ${boiler_power_threshold}) {
+          return true;
+        }
+      }
+      return false;
+    on_press:
+      then:
+        - logger.log: "Boiler Alert Triggered! Playing Sound."
+        - script.execute: quiet_chirp
+
+  - platform: gpio
+    pin: 
+      number: 39
+      inverted: true
+    name: "Button A (Left)"
+    on_press:
+      then:
+        - script.execute: beep
+        - lambda: |-
+            if (!id(disp_bl).current_values.is_on()) {
+              auto call = id(disp_bl).turn_on();
+              call.set_brightness(1.0);
+              call.perform();
+            } else if (id(disp_bl).current_values.get_brightness() >= 0.6) {
+              auto call = id(disp_bl).turn_on();
+              call.set_brightness(${backlight_dim});
+              call.perform();
+            } else {
+              auto call = id(disp_bl).turn_off();
+              call.perform();
+            }
+
+  - platform: gpio
+    pin: 
+      number: 38
+      inverted: true
+    name: "Button B (Alert)"
+    on_press:
+      then:
+        - script.execute: quiet_chirp
+        - logger.log: "Button B (Manual Alert) pressed"
+
+  - platform: gpio
+    pin: 
+      number: 37
+      inverted: true
+    name: "Button C (Right)"
+    on_press:
+      then:
+        - script.execute: reboot_navien

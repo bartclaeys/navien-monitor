@@ -1,0 +1,8 @@
+secrets.yaml
+.esphome/
+.pioenvs/
+.venv-3.13/
+.venv-*/
+__pycache__/
+*.log
+.DS_Store
