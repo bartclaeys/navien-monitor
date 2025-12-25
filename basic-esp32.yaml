@@ -8,6 +8,10 @@ substitutions:
 esphome:
   name: "navien-monitor"
   friendly_name: "Navien Water Heater"
+  comment: "M5Stack Monitor for Navien Boiler (Power & Alert System)"
+  project:
+    name: "bartclaeys.navien-monitor"
+    version: "1.0.0"
 
 esp32:
   board: m5stack-core-esp32
